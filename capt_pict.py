@@ -12,17 +12,85 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
+import configparser
 
-# Настройки
-CONFIG_FILE = "C:/Projects/2025/python/capture_picture_from_ipcoamera/cameras.conf"  # Файл с IP-адресами камер
-SAVE_FOLDER = "C:/Projects/2025/python/capture_picture_from_ipcoamera/images"  # Базовая папка для сохранения
-INTERVAL_SEC = 2  # Интервал между снимками в секундах
-MAX_WORKERS = 10  # Максимальное количество параллельных потоков
-MODEL_PATH = "C:/Projects/2025/python/stew_bad_recog/models/yolo11s_with_dataset_160525/best.pt"  # Путь к модели YOLO
-THUMBNAIL_WIDTH = 320  # Ширина миниатюр в сетке
-THUMBNAIL_HEIGHT = 240  # Высота миниатюр в сетке
-UI_UPDATE_INTERVAL = 100  # Интервал обновления UI в миллисекундах
-GRID_COLUMNS = 2  # Количество столбцов в сетке изображений
+# Значения по умолчанию (будут использоваться, если параметры отсутствуют в конфигурационном файле)
+DEFAULT_CONFIG = {
+    "General": {
+        "config_file": "cameras.conf",
+        "save_folder": "C:/Projects/2025/python/capture_picture_from_ipcoamera/images",
+        "interval_sec": "1",
+        "max_workers": "10"
+    },
+    "YOLO": {
+        "model_path": "C:/Projects/2025/python/stew_bad_recog/models/yolo11s_with_dataset_160525/best.pt"
+    },
+    "UI": {
+        "thumbnail_width": "320",
+        "thumbnail_height": "240",
+        "ui_update_interval": "100",
+        "grid_columns": "2"
+    }
+}
+CONFIG_INI_FILE = "C:/Projects/2025/python/capture_picture_from_ipcoamera/config.conf"
+
+# Глобальные настройки (будут заполнены из файла конфигурации)
+CONFIG = {
+    "config_file": "",
+    "save_folder": "",
+    "interval_sec": 1,
+    "max_workers": 10,
+    "model_path": "",
+    "thumbnail_width": 320,
+    "thumbnail_height": 240,
+    "ui_update_interval": 100,
+    "grid_columns": 2
+}
+def load_config():
+    """Загружает настройки из файла конфигурации."""
+    config = configparser.ConfigParser()
+    
+    # Если файл конфигурации не существует, создаем его с настройками по умолчанию
+    if not os.path.exists(CONFIG_INI_FILE):
+        print(f"Файл конфигурации {CONFIG_INI_FILE} не найден. Создаю новый с настройками по умолчанию.")
+        for section in DEFAULT_CONFIG:
+            config[section] = DEFAULT_CONFIG[section]
+            
+        with open(CONFIG_INI_FILE, 'w') as configfile:
+            config.write(configfile)
+    else:
+        # Загружаем существующий файл конфигурации
+        config.read(CONFIG_INI_FILE)
+        print(f"Загружен файл конфигурации: {CONFIG_INI_FILE}")
+    
+    # Заполняем глобальные настройки из файла конфигурации
+    # Если какая-то настройка отсутствует, используем значение по умолчанию
+    global CONFIG
+    
+    # Настройки из секции General
+    if 'General' in config:
+        CONFIG["config_file"] = config.get('General', 'config_file', fallback=DEFAULT_CONFIG['General']['config_file'])
+        CONFIG["save_folder"] = config.get('General', 'save_folder', fallback=DEFAULT_CONFIG['General']['save_folder'])
+        CONFIG["interval_sec"] = config.getfloat('General', 'interval_sec', fallback=float(DEFAULT_CONFIG['General']['interval_sec']))
+        CONFIG["max_workers"] = config.getint('General', 'max_workers', fallback=int(DEFAULT_CONFIG['General']['max_workers']))
+    
+    # Настройки из секции YOLO
+    if 'YOLO' in config:
+        CONFIG["model_path"] = config.get('YOLO', 'model_path', fallback=DEFAULT_CONFIG['YOLO']['model_path'])
+    
+    # Настройки из секции UI
+    if 'UI' in config:
+        CONFIG["thumbnail_width"] = config.getint('UI', 'thumbnail_width', fallback=int(DEFAULT_CONFIG['UI']['thumbnail_width']))
+        CONFIG["thumbnail_height"] = config.getint('UI', 'thumbnail_height', fallback=int(DEFAULT_CONFIG['UI']['thumbnail_height']))
+        CONFIG["ui_update_interval"] = config.getint('UI', 'ui_update_interval', fallback=int(DEFAULT_CONFIG['UI']['ui_update_interval']))
+        CONFIG["grid_columns"] = config.getint('UI', 'grid_columns', fallback=int(DEFAULT_CONFIG['UI']['grid_columns']))
+    
+    print("Загружены следующие настройки:")
+    for key, value in CONFIG.items():
+        print(f"  {key}: {value}")
+    
+    return CONFIG
+
 
 # Очереди для передачи изображений между потоками (по одной на камеру)
 image_queues = {}
@@ -92,8 +160,12 @@ def capture_from_camera(camera_url, camera_index, yolo_model):
     """Функция для захвата изображений с одной камеры в отдельном потоке и их обработки YOLO."""
     global camera_active
     
+    # Используем настройки из CONFIG
+    save_folder = CONFIG["save_folder"]
+    interval_sec = CONFIG["interval_sec"]
+    
     # Создаем отдельную папку для этой камеры
-    camera_folder = os.path.join(SAVE_FOLDER, f"camera_{camera_index}")
+    camera_folder = os.path.join(save_folder, f"camera_{camera_index}")
     if not os.path.exists(camera_folder):
         os.makedirs(camera_folder)
     
@@ -218,7 +290,7 @@ def capture_from_camera(camera_url, camera_index, yolo_model):
             print(f"Камера {camera_index}: Ошибка: {str(e)}")
         
         # Ждем указанный интервал
-        time.sleep(INTERVAL_SEC)
+        time.sleep(interval_sec)
     
     print(f"Захват с камеры {camera_index} остановлен.")
 
@@ -228,13 +300,19 @@ class MultiCameraMonitorApp:
         self.root.title("Система мониторинга дефектов - Параллельный режим")
         
         # Получаем размер экрана для более оптимального отображения
+    # Используем настройки из CONFIG
+        thumbnail_width = CONFIG["thumbnail_width"]
+        thumbnail_height = CONFIG["thumbnail_height"]
+        grid_columns = CONFIG["grid_columns"]
+
+        # Получаем размер экрана для более оптимального отображения
         screen_width = root.winfo_screenwidth()
-        screen_height = root.winfo_screenheight()
-        
+        screen_height = root.winfo_screenheight()    
+
         # Устанавливаем размер окна
-        window_width = min(screen_width - 100, THUMBNAIL_WIDTH * GRID_COLUMNS + 40)
+        window_width = min(screen_width - 100, thumbnail_width * grid_columns + 40)
         window_height = min(screen_height - 100, 
-                           (THUMBNAIL_HEIGHT * ((len(camera_urls) + GRID_COLUMNS - 1) // GRID_COLUMNS)) + 100)
+                           (thumbnail_height * ((len(camera_urls) + grid_columns - 1) // grid_columns)) + 100)
         
         self.root.geometry(f"{window_width}x{window_height}")
         
@@ -298,13 +376,15 @@ class MultiCameraMonitorApp:
     
     def setup_camera_grid(self):
         """Создаем сетку для отображения всех камер одновременно."""
+        grid_columns = CONFIG["grid_columns"]
+
         self.camera_frames = []
         self.camera_labels = []
         self.camera_buttons = []
         self.camera_vars = []
         
         # Определяем количество столбцов для сетки
-        columns = GRID_COLUMNS
+        columns = grid_columns
         rows = (self.num_cameras + columns - 1) // columns  # Округляем вверх
         
         # Создаем фреймы и метки для каждой камеры
@@ -349,6 +429,12 @@ class MultiCameraMonitorApp:
     
     def update_display(self):
         """Обновляет все миниатюры камер."""
+        
+        # Используем настройки из CONFIG
+        ui_update_interval = CONFIG["ui_update_interval"]
+        thumbnail_width = CONFIG["thumbnail_width"]
+        thumbnail_height = CONFIG["thumbnail_height"]
+
         # Обновляем изображения для всех камер
         for camera_idx in range(self.num_cameras):
             # Проверяем, есть ли новое изображение в очереди этой камеры
@@ -387,7 +473,7 @@ class MultiCameraMonitorApp:
                 print(f"Ошибка при обновлении дисплея для камеры {camera_idx}: {str(e)}")
         
         # Планируем следующее обновление
-        self.root.after(UI_UPDATE_INTERVAL, self.update_display)
+        self.root.after(ui_update_interval, self.update_display)
     
     def toggle_camera(self, camera_idx):
         """Включает или выключает выбранную камеру."""
@@ -533,30 +619,39 @@ def start_camera_threads(camera_urls, yolo_model):
     return threads
 
 def main():
+    # Загружаем настройки из файла конфигурации
+    load_config()
+    
+    # Используем настройки из CONFIG
+    save_folder = CONFIG["save_folder"]
+    config_file = CONFIG["config_file"]
+    model_path = CONFIG["model_path"]
+    max_workers = CONFIG["max_workers"]
+
     # Создаем базовую папку для сохранения
-    if not os.path.exists(SAVE_FOLDER):
-        os.makedirs(SAVE_FOLDER)
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
     
     # Загружаем список URL камер
-    camera_urls = load_camera_config(CONFIG_FILE)
+    camera_urls = load_camera_config(config_file)
     
     if not camera_urls:
-        print(f"Не найдены URL камер в файле {CONFIG_FILE}")
+        print(f"Не найдены URL камер в файле {config_file}")
         print("Создаем демонстрационную конфигурацию...")
         # Создаем демо-конфигурацию
         camera_urls = ["http://192.168.0.100:8080", "http://192.168.0.101:8080"]
         
         # Сохраняем демо-конфигурацию
-        with open(CONFIG_FILE, 'w') as f:
+        with open(config_file, 'w') as f:
             for url in camera_urls:
                 f.write(f"{url}\n")
     
     print(f"Найдено {len(camera_urls)} камер в конфигурации.")
     
     # Загружаем модель YOLO
-    print(f"Загрузка модели YOLO из {MODEL_PATH}...")
+    print(f"Загрузка модели YOLO из {model_path}...")
     try:
-        model = YOLO(MODEL_PATH)  # Загружаем модель YOLO
+        model = YOLO(model_path)  # Загружаем модель YOLO
         print("Модель YOLO успешно загружена.")
     except Exception as e:
         print(f"Ошибка при загрузке модели YOLO: {str(e)}")
@@ -573,9 +668,9 @@ def main():
     
     # Запускаем потоки захвата
     camera_threads = start_camera_threads(camera_urls, model)
-    
+    # save_folder = CONFIG["save_folder"]
     print(f"Запущено {len(camera_threads)} потоков захвата изображений")
-    print(f"Изображения сохраняются в {SAVE_FOLDER}")
+    print(f"Изображения сохраняются в {save_folder}")
     
     try:
         # Запускаем главный цикл Tkinter
