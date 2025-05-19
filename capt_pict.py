@@ -32,7 +32,7 @@ DEFAULT_CONFIG = {
         "grid_columns": "2"
     }
 }
-CONFIG_INI_FILE = "C:/Projects/2025/python/capture_picture_from_ipcoamera/config.conf"
+CONFIG_INI_FILE = "C:/Projects/2025/python/qq/config.conf"
 
 # Глобальные настройки (будут заполнены из файла конфигурации)
 CONFIG = {
